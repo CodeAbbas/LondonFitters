@@ -1,8 +1,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
 import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-import { getFirestore, collection, addDoc, query, orderBy, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import { getFirestore, collection, doc, setDoc, addDoc, query, orderBy, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-// Parse config from global variable defined in index.html
 const firebaseConfig = JSON.parse(__firebase_config);
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -41,18 +40,18 @@ const chatInput = document.getElementById('chat-input');
 const typingIndicator = document.getElementById('typing-indicator');
 
 function initChat(userId) {
+    // Listen for messages in this user's conversation
     const q = query(
         collection(db, 'artifacts', appId, 'users', userId, 'messages'),
         orderBy('createdAt', 'asc')
     );
 
     unsubscribeMessages = onSnapshot(q, (snapshot) => {
-        chatMessages.innerHTML = ''; // Clear and redraw (simple approach)
+        chatMessages.innerHTML = ''; 
         
-        // Add welcome message if empty
         if (snapshot.empty) {
             appendMessage({
-                text: "Hi there! I'm your virtual assistant. Need a quote for an IKEA Pax or a general inquiry?",
+                text: "Hi! I'm your LondonFitters assistant. How can I help with your assembly?",
                 sender: 'agent',
                 createdAt: { seconds: Date.now() / 1000 }
             });
@@ -64,9 +63,6 @@ function initChat(userId) {
         });
         
         scrollToBottom();
-    }, (error) => {
-        console.error("Chat Error:", error);
-        appendMessage({text: "Connection lost. Please refresh.", sender: 'system'});
     });
 }
 
@@ -91,7 +87,7 @@ function scrollToBottom() {
     chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
-// Send Message
+// 3. Send Message & Update User Record (Vital for Admin Panel)
 chatForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const text = chatInput.value.trim();
@@ -100,44 +96,26 @@ chatForm.addEventListener('submit', async (e) => {
     chatInput.value = '';
 
     try {
-        await addDoc(collection(db, 'artifacts', appId, 'users', currentUser.uid, 'messages'), {
+        const userRef = doc(db, 'artifacts', appId, 'users', currentUser.uid);
+        const messagesRef = collection(userRef, 'messages');
+
+        // A. Add the message
+        await addDoc(messagesRef, {
             text: text,
             sender: 'user',
             createdAt: serverTimestamp()
         });
 
-        // Simulate Agent Reply (for demo purposes)
-        simulateReply();
+        // B. Update the "User" document so they show up in the Admin List
+        await setDoc(userRef, {
+            lastMessage: text,
+            lastUpdated: serverTimestamp(),
+            userId: currentUser.uid,
+            // Assuming we don't have their name yet, but if we did from the form, we'd add it here
+            status: 'unread'
+        }, { merge: true });
 
     } catch (err) {
         console.error("Send Error", err);
     }
 });
-
-let replyTimeout;
-function simulateReply() {
-    clearTimeout(replyTimeout);
-    // Show typing indicator
-    typingIndicator.classList.remove('hidden');
-    scrollToBottom();
-
-    replyTimeout = setTimeout(async () => {
-        typingIndicator.classList.add('hidden');
-        if(!currentUser) return;
-        
-        // Determine a generic reply
-        const replies = [
-            "Thanks for the details! Ideally, send us a photo of the boxes.",
-            "We cover all of London. What's your postcode?",
-            "Got it. I'll ask Abbas to check the schedule.",
-            "Is parking available at the property?"
-        ];
-        const randomReply = replies[Math.floor(Math.random() * replies.length)];
-
-        await addDoc(collection(db, 'artifacts', appId, 'users', currentUser.uid, 'messages'), {
-            text: randomReply,
-            sender: 'agent',
-            createdAt: serverTimestamp()
-        });
-    }, 2000);
-}
